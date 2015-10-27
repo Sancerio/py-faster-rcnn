@@ -82,9 +82,6 @@ def demo(net, im):
             if boxes_scores is not None:
                 rslt.append((boxes_scores, cls))
 
-
-    #if not rslt:
-        #print rslt
         return rslt
 
 def parse_args():
