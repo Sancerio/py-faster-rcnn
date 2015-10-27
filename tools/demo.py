@@ -5,6 +5,7 @@
 # Copyright (c) 2015 Microsoft
 # Licensed under The MIT License [see LICENSE for details]
 # Written by Ross Girshick
+# Updated by Limiardi Eka Sancerio
 # --------------------------------------------------------
 
 """
@@ -45,40 +46,21 @@ def vis_detections(im, class_name, dets, thresh=0.5):
         print "no " + class_name+ " detected."
         return
     boxes_scores = []
-    #scores = []
-    # im = im[:, :, (2, 1, 0)]
-    # fig, ax = plt.subplots(figsize=(12, 12))
-    # ax.imshow(im, aspect='equal')
+
     for i in inds:
         bbox = dets[i, :4]
         score = dets[i, -1]
         boxes_scores.append((bbox,score))
-        #scores.append(score)
-        # ax.add_patch(
-        #     plt.Rectangle((bbox[0], bbox[1]),
-        #                   bbox[2] - bbox[0],
-        #                   bbox[3] - bbox[1], fill=False,
-        #                   edgecolor='red', linewidth=3.5)
-        #     )
 
-        # ax.text(bbox[0], bbox[1] - 2,
-        #         '{:s} {:.3f}'.format(class_name, score),
-        #         bbox=dict(facecolor='blue', alpha=0.5),
-        #         fontsize=14, color='white')
     return boxes_scores
 
-def demo(net, image_name):
+def demo(net, im):
     """Detect object classes in an image using pre-computed object proposals."""
-
-    # Load the demo image
-    im_file = os.path.join(cfg.ROOT_DIR, image_name + '.jpg')
-    im = cv2.imread(im_file)
 
     # Detect all object classes and regress object bounds
     timer = Timer()
     timer.tic()
     if im != None:
-        #rbox, rscore = im_proposals(net, im)
         scores, boxes = im_detect(net, im)#, rbox)
         timer.toc()
         print ('Detection took {:.3f}s for '
@@ -102,7 +84,7 @@ def demo(net, image_name):
 
 
     #if not rslt:
-        print rslt
+        #print rslt
         return rslt
 
 def parse_args():
@@ -155,7 +137,7 @@ if __name__ == '__main__':
     font = cv2.FONT_HERSHEY_SIMPLEX
     current = time.time()
     previous = current
-    #init = True
+
     while (True):
         ret, frame = cap.read()
         
@@ -166,27 +148,13 @@ if __name__ == '__main__':
         if key == ord('q'):
             break
         if  (current - previous) > 1:
-            cv2.imwrite(cfg.ROOT_DIR + '/' + 'frame' + '.jpg', frame)
-            image_path = [cfg.ROOT_DIR + '/' + 'frame' + '.jpg']
-            #print image_path
-            previous = current
-            #if init:
-                #init = False
-        
-            #get_windows(image_path)
-            #print("Processed {} images in {:.3f} s".format(
-                #len(image_path), time.time() - t))
             
-            detected = demo(net, 'frame')
+            previous = current            
+            detected = demo(net, frame)
 
-            #plt.show()
 
         for x in detected:
-            #print x[1],x[0][0][0]
-            #,x[1]
             for y in x[0]:
-                #print y[0][0]
-                #print y[1]
                 cv2.rectangle(frame, (y[0][0], y[0][1]), 
                     (y[0][2], y[0][3]), (0,255,0), 3)        
                 cv2.putText(frame, x[1],# + str(y[1]), 
