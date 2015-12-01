@@ -159,6 +159,10 @@ def im_detect(net, im, boxes=None):
         rois = net.blobs['rois'].data.copy()
         # unscale back to raw image space
         boxes = rois[:, 1:5] / im_scales[0]
+        object_boxes = boxes
+        object_scores = net.blobs['rpn_cls_prob_reshape'].data.copy()
+
+    feature_maps = net.blobs['conv5'].data.copy()
 
     if cfg.TEST.SVM:
         # use the raw scores before softmax under the assumption they
@@ -182,7 +186,7 @@ def im_detect(net, im, boxes=None):
         scores = scores[inv_index, :]
         pred_boxes = pred_boxes[inv_index, :]
 
-    return scores, pred_boxes
+    return object_scores, object_boxes, scores, pred_boxes, feature_maps
 
 def vis_detections(im, class_name, dets, thresh=0.3):
     """Visual debugging of detections."""
