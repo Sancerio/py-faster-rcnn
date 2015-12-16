@@ -24,6 +24,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.io as sio
 import caffe, os, sys, cv2
+import cv2.cv as cv
+import skvideo.io
 import argparse
 import collections
 
@@ -44,7 +46,9 @@ def vis_detections(im, class_name, dets, thresh=0.5):
     """Draw detected bounding boxes."""
     inds = np.where(dets[:, -1] >= thresh)[0]
     if len(inds) == 0:
-        #print "no " + class_name+ " detected."
+        print "no " + class_name+ " detected."
+        #print dets[:,-1].shape
+        #print dets[:,-1]
         return
     boxes_scores = []
 
@@ -53,9 +57,59 @@ def vis_detections(im, class_name, dets, thresh=0.5):
         bbox = dets[i, :4]
         score = dets[i, -1]
         print ("Score for {:s} {:d} is {:.3f} ").format(class_name, i, score)
+        print ("Detected coordinates : {:.1f}, {:.1f}, {:.1f}, and {:.1f}").format(bbox[0],bbox[1],bbox[2],bbox[3])
         boxes_scores.append((bbox,score))
 
     return boxes_scores
+
+def det_objects(im, class_name, dets, thresh=0.5):
+    """Draw detected bounding boxes."""
+    inds = np.where(dets[:, -1] <= thresh)[0]
+    #print dets[:,-1].shape
+    #print dets[:,-1]
+    if len(inds) == 0:
+        print "no " + class_name+ " detected."
+        return
+    boxes_scores = []
+
+    print ("{:d} {:s}s detected").format(len(inds), class_name)
+    for i in inds:
+        bbox = dets[i, :4]
+        score = dets[i, -1]
+        print ("Score for {:s} {:d} is {:.3f} ").format(class_name, i, score)
+        print ("Detected coordinates : {:.1f}, {:.1f}, {:.1f}, and {:.1f}").format(bbox[0],bbox[1],bbox[2],bbox[3])
+        boxes_scores.append((bbox,score))
+
+    return boxes_scores
+
+def is_learnt_boxes(list_of_boxes, boxes_scores, thresh = 0.5):
+    """Check Unique Unlearnt Boxes"""
+    print list_of_boxes
+    print boxes_scores
+
+    x1 = boxes_scores[0][0][0]
+    y1 = boxes_scores[0][0][1]
+    x2 = boxes_scores[0][0][2]
+    y2 = boxes_scores[0][0][3]
+
+    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+
+    for box in list_of_boxes:
+        for coordinates in box[0]:
+            xx1 = np.maximum(x1, coordinates[0][0])
+            yy1 = np.maximum(y1, coordinates[0][1])
+            xx2 = np.minimum(x2, coordinates[0][3])
+            yy2 = np.minimum(y2, coordinates[0][3])
+            areas2 = ((coordinates[0][2]-coordinates[0][0]+1)*
+                (coordinates[0][3]-coordinates[0][1]))
+            w = np.maximum(0.0, xx2 - xx1 + 1)
+            h = np.maximum(0.0, yy2 - yy1 + 1)
+            inter = w * h
+            iou = inter / (areas + areas2 - inter)
+            if(iou >= thresh):
+                return True
+
+    return False
 
 def demo(net, im):
     """Detect object classes in an image using pre-computed object proposals."""
@@ -69,27 +123,26 @@ def demo(net, im):
 
 
         #EXPERIMENT CHECK ACTIVATED CONVMAPS FEATURES
-        activated = np.transpose(np.nonzero(features))
+        #activated = np.transpose(np.nonzero(features))
         #print activated[0].size
         #print activated[1].size
         #print activated.shape
-        #print activated
-        #print activated
-        #print activated
 
         timer.toc()
         print ('\nDetection took {:.3f}s for '
            '{:d} object proposals').format(timer.total_time, boxes.shape[0])
 
         # Visualize detections for each class
-        CONF_THRESH = 0.7*np.ones((1,len(CLASSES)),dtype=np.float32)
+        CONF_THRESH = 0.9*np.ones((1,len(CLASSES)),dtype=np.float32)
         #PERSON
-        CONF_THRESH[0,15] = 0.9
+        #CONF_THRESH[0,15] = 0.8#0.9
         #BOTTLE
-        CONF_THRESH[0,5] = 0.5
+        #CONF_THRESH[0,5] = 0.8#0.42
 
-        NMS_THRESH = 0.2
+        NMS_THRESH = 0.3
         rslt = []
+        #print scores.shape
+        #print scores
         for cls_ind, cls in enumerate(CLASSES[1:]):
             cls_ind += 1 # because we skipped background
             cls_boxes = boxes[:, 4*cls_ind:4*(cls_ind + 1)]
@@ -98,10 +151,22 @@ def demo(net, im):
                           cls_scores[:, np.newaxis])).astype(np.float32)
             keep = nms(dets, NMS_THRESH)
             dets = dets[keep, :]
-            boxes_scores = vis_detections(im, cls, dets, thresh=CONF_THRESH[0,i])
+            boxes_scores = vis_detections(im, cls, dets, thresh=CONF_THRESH[0,cls_ind])
             if boxes_scores is not None:
                 rslt.append((boxes_scores, cls))
 
+        #Check Non-Background Objects
+        cls_boxes = boxes[:, 0:4]
+        cls_scores = scores[:, 0]
+        dets = np.hstack((cls_boxes,
+                cls_scores[:, np.newaxis])).astype(np.float32)
+        keep = nms(dets, 0.3)
+        dets = dets[keep, :]
+        boxes_scores = det_objects(im, 'new', dets, thresh=0.1)
+        if (boxes_scores != None and not is_learnt_boxes(rslt, boxes_scores,0.2)):
+            print rslt
+            rslt.append((boxes_scores, 'new'))
+        
         return rslt,object_boxes
 
 def parse_args():
@@ -148,8 +213,10 @@ if __name__ == '__main__':
 
     import time
     # Start here
-    vid = os.path.join(cfg.ROOT_DIR, 'tools', 'demo.avi')
-    cap = cv2.VideoCapture(0)
+    vid_path = os.path.join(cfg.ROOT_DIR, 'tools', 'demo.mp4')
+    img_path = os.path.join(cfg.ROOT_DIR, 'test.jpg')
+    cap = skvideo.io.VideoCapture(vid_path)
+    #cap = cv2.VideoCapture(0)
     detected = []
     test = []
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -157,15 +224,18 @@ if __name__ == '__main__':
     previous = current
     n = 0;
     object_boxes = collections.deque(maxlen=10)
-    while (True):
-        ret, frame = cap.read()
 
-        key = cv2.waitKey(1) & 0xFF
+    while (True):
+        
+        ret, frame = cap.read()
+        #modified_frame = frame
+        modified_frame = cv2.cvtColor(frame,cv2.COLOR_BGR2RGB)
+        key = cv2.waitKey(20) & 0xFF
         current = time.time() 
 
         if key == ord('q'):
             break
-        if  (current - previous) > 1:
+        if  (current - previous) > 0.25:
             previous = current            
             detected,test = demo(net, frame)
             object_boxes.append(test[1,:]);
@@ -173,17 +243,23 @@ if __name__ == '__main__':
         for x in detected:
             for y in x[0]:
                 # Draw detected objects and the type
-                cv2.rectangle(frame, (y[0][0], y[0][1]), 
-                    (y[0][2], y[0][3]), (0,255,0), 3)        
-                cv2.putText(frame, x[1],
-                   ( int ((y[0][0] + y[0][2])/2),
-                     int ((y[0][1] + y[0][3])/2) ),
-                   font, 1 , (199,175,152), 2, cv2.CV_AA)
+                if x[1] == 'new':
+                    cv2.rectangle(modified_frame, (y[0][0], y[0][1]), 
+                        (y[0][2], y[0][3]), (0,0,255), 1)
+                else:    
+                    cv2.rectangle(modified_frame, (y[0][0], y[0][1]), 
+                        (y[0][2], y[0][3]), (0,255,0), 2)
+                    cv2.putText(modified_frame, x[1],
+                        ( int ((y[0][0] + y[0][2])/2),
+                        int ((y[0][1] + y[0][3])/2) ),
+                        font, 1 , (199,175,152), 2, cv2.CV_AA)           
+                
 
         n = len(object_boxes)
         sum = [];
         #for x in object_boxes:
         test = [0,0,0,0]
+        #time.sleep(0.02)
         #print object_boxes
         #for boxes in object_boxes:
             #test += boxes/n
@@ -195,7 +271,8 @@ if __name__ == '__main__':
         #print test
         #cv2.rectangle(frame, (int(test[0]), int(test[1])),
         #            (int(test[2]), int(test[3])), (0,0,255), 3)
-        cv2.imshow('Video', frame)
+        cv2.imshow('Video', modified_frame)
 
     cap.release()
+    cv2.imwrite(img_path, frame)
     cv2.destroyAllWindows()
