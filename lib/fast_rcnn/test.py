@@ -18,7 +18,11 @@ from fast_rcnn.nms_wrapper import nms
 import cPickle
 import heapq
 from utils.blob import im_list_to_blob
+import matplotlib.pyplot as plt
 import os
+import math
+
+DEBUG = False
 
 def _get_image_blob(im):
     """Converts an image into a network input.
@@ -106,6 +110,21 @@ def _get_blobs(im, rois):
         blobs['rois'] = _get_rois_blob(rois, im_scale_factors)
     return blobs, im_scale_factors
 
+# helper show filter outputs
+def show_filters(net):
+    plt.figure()
+    filt_min, filt_max = net.blobs['conv1'].data.min(), net.blobs['conv1'].data.max()
+    num = 80
+    print net.blobs['conv1'].data.shape
+    for i in range(num):
+        plt.subplot(math.ceil(math.sqrt(num)),math.ceil(math.sqrt(num)),i+1)
+        #plt.title("filter #{} output".format(i))
+        #print net.blobs['conv1'].data[0, i].shape
+        plt.imshow(net.blobs['conv1'].data[0, i], vmin=filt_min, vmax=filt_max)
+        plt.tight_layout()
+        plt.axis('off')
+
+
 def im_detect(net, im, boxes=None):
     """Detect object classes in an image given object proposals.
 
@@ -153,6 +172,9 @@ def im_detect(net, im, boxes=None):
     else:
         forward_kwargs['rois'] = blobs['rois'].astype(np.float32, copy=False)
     blobs_out = net.forward(**forward_kwargs)
+    
+    if DEBUG:
+        show_filters(net)
 
     if cfg.TEST.HAS_RPN:
         assert len(im_scales) == 1, "Only single-image batch implemented"
@@ -162,7 +184,7 @@ def im_detect(net, im, boxes=None):
         object_boxes = boxes
         object_scores = net.blobs['rpn_cls_prob_reshape'].data.copy()
 
-    feature_maps = net.blobs['conv5'].data.copy()
+    #feature_maps = net.blobs['conv5'].data.copy()
 
     if cfg.TEST.SVM:
         # use the raw scores before softmax under the assumption they
@@ -186,7 +208,7 @@ def im_detect(net, im, boxes=None):
         scores = scores[inv_index, :]
         pred_boxes = pred_boxes[inv_index, :]
 
-    return object_scores, object_boxes, scores, pred_boxes, feature_maps
+    return object_scores, object_boxes, scores, pred_boxes
 
 def vis_detections(im, class_name, dets, thresh=0.3):
     """Visual debugging of detections."""
@@ -220,7 +242,7 @@ def apply_nms(all_boxes, thresh):
             dets = all_boxes[cls_ind][im_ind]
             if dets == []:
                 continue
-            keep = nms(dets, thresh)
+            keep = nms(dets, thresh, force_cpu=True)
             if len(keep) == 0:
                 continue
             nms_boxes[cls_ind][im_ind] = dets[keep, :].copy()

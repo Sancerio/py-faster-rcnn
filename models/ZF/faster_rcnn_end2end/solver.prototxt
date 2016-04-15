@@ -1,9 +1,11 @@
-train_net: "models/ZF/faster_rcnn_end2end/train.prototxt"
+train_net: "models/Res/ResNet-50-deploy.prototxt"
+#train_net: "models/ZF/faster_rcnn_end2end/train.prototxt"
 
 base_lr: 0.001
 lr_policy: "step"
 gamma: 0.1
-stepsize: 50000
+stepsize: 350000
+#stepsize: 50000
 display: 20
 average_loss: 100
 momentum: 0.9

@@ -85,6 +85,7 @@ def im_proposals(net, im):
     """Generate RPN proposals on a single image."""
     blobs = {}
     blobs['data'], blobs['im_info'] = _get_image_blob(im)
+    print blobs['im_info']
     net.blobs['data'].reshape(*(blobs['data'].shape))
     net.blobs['im_info'].reshape(*(blobs['im_info'].shape))
     blobs_out = net.forward(

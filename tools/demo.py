@@ -24,40 +24,51 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.io as sio
 import caffe, os, sys, cv2
-import cv2.cv as cv
 import skvideo.io
 import argparse
 import collections
 
 CLASSES = ('__background__',
-           'aeroplane', 'bicycle', 'bird', 'boat',
-           'bottle', 'bus', 'car', 'cat', 'chair',
-           'cow', 'diningtable', 'dog', 'horse',
-           'motorbike', 'person', 'pottedplant',
-           'sheep', 'sofa', 'train', 'tvmonitor')
+           'person', 'bicycle', 'car', 'motorcycle', 
+           'airplane', 'bus','train', 'truck', 'boat', 
+           'traffic light', 'fire hydrant', 'stop sign', 
+           'parking meter', 'bench', 'bird', 'cat', 
+           'dog', 'horse', 'sheep', 'cow', 
+           'elephant', 'bear', 'zebra', 'giraffe', 
+           'backpack', 'umbrella', 'handbag', 'tie', 
+           'suitcase', 'frisbee', 'skis', 'snowboard', 
+           'sports ball', 'kite', 'baseball bat', 'baseball glove', 
+           'skateboard', 'surfboard', 'tennis racket', 'bottle', 
+           'wine glass', 'cup', 'fork', 'knife', 
+           'spoon', 'bowl', 'banana', 'apple', 
+           'sandwich', 'orange', 'broccoli', 'carrot', 
+           'hot dog', 'pizza', 'donut', 'cake', 
+           'chair', 'couch', 'potted plant', 'bed', 
+           'dining table', 'toilet', 'tv', 'book', 
+           'mouse', 'remote', 'keyboard', 'cell phone', 
+           'microwave', 'oven', 'toaster', 'sink', 
+           'refrigerator', 'book', 'clock', 'vase', 
+           'scissors', 'teddy bear', 'hair drier', 'toothbrush')
 
 NETS = {'vgg16': ('VGG16',
                   'VGG16_faster_rcnn_final.caffemodel'),
         'zf': ('ZF',
-                  'ZF_faster_rcnn_final.caffemodel')}
+                  'zf_faster_rcnn_coco.caffemodel')}
 
+smoothing_window = 10
 
 def vis_detections(im, class_name, dets, thresh=0.5):
-    """Draw detected bounding boxes."""
+    """Return list of tuples of (bounding box, score)."""
     inds = np.where(dets[:, -1] >= thresh)[0]
     if len(inds) == 0:
         print "no " + class_name+ " detected."
-        #print dets[:,-1].shape
-        #print dets[:,-1]
         return
     boxes_scores = []
 
-    print ("{:d} {:s}s detected").format(len(inds), class_name)
+    #print ("{:d} {:s}s detected").format(len(inds), class_name)
     for i in inds:
         bbox = dets[i, :4]
         score = dets[i, -1]
-        print ("Score for {:s} {:d} is {:.3f} ").format(class_name, i, score)
-        print ("Detected coordinates : {:.1f}, {:.1f}, {:.1f}, and {:.1f}").format(bbox[0],bbox[1],bbox[2],bbox[3])
         boxes_scores.append((bbox,score))
 
     return boxes_scores
@@ -65,27 +76,42 @@ def vis_detections(im, class_name, dets, thresh=0.5):
 def det_objects(im, class_name, dets, thresh=0.5):
     """Draw detected bounding boxes."""
     inds = np.where(dets[:, -1] <= thresh)[0]
-    #print dets[:,-1].shape
-    #print dets[:,-1]
     if len(inds) == 0:
-        print "no " + class_name+ " detected."
+        #print "no " + class_name+ " detected."
         return
     boxes_scores = []
 
-    print ("{:d} {:s}s detected").format(len(inds), class_name)
+    #print ("{:d} {:s}s detected").format(len(inds), class_name)
     for i in inds:
         bbox = dets[i, :4]
         score = dets[i, -1]
-        print ("Score for {:s} {:d} is {:.3f} ").format(class_name, i, score)
-        print ("Detected coordinates : {:.1f}, {:.1f}, {:.1f}, and {:.1f}").format(bbox[0],bbox[1],bbox[2],bbox[3])
+        #print ("Score for {:s} {:d} is {:.3f} ").format(class_name, i, score)
+        #print ("Detected coordinates : {:.1f}, {:.1f}, {:.1f}, and {:.1f}").format(bbox[0],bbox[1],bbox[2],bbox[3])
         boxes_scores.append((bbox,score))
 
     return boxes_scores
 
+def iou(box1, box2):
+    x11, y11, x21, y21 = box1
+    x12, y12, x22, y22 = box2
+
+    area1 = (x21 - x11) * (y21 - y11)
+    area2 = (x22 - x12) * (y22 - y12)
+
+    xx1 = np.maximum(x11, x12)
+    yy1 = np.maximum(y11, y12)
+    xx2 = np.minimum(x21, x22)
+    yy2 = np.minimum(y21, y22)
+
+    w = np.maximum(0.0, xx2 - xx1)
+    h = np.maximum(0.0, yy2 - yy1)
+    inter = w * h
+    iou = inter / (area1 + area2 - inter)
+    
+    return iou
+
 def is_learnt_boxes(list_of_boxes, boxes_scores, thresh = 0.5):
     """Check Unique Unlearnt Boxes"""
-    print list_of_boxes
-    print boxes_scores
 
     x1 = boxes_scores[0][0][0]
     y1 = boxes_scores[0][0][1]
@@ -111,39 +137,57 @@ def is_learnt_boxes(list_of_boxes, boxes_scores, thresh = 0.5):
 
     return False
 
-def demo(net, im):
+def demo(net, im, PrevClass):
     """Detect object classes in an image using pre-computed object proposals."""
 
     # Detect all object classes and regress object bounds
     timer = Timer()
     timer.tic()
     if im != None:
-        object_scores, object_boxes, scores, boxes, feature_maps = im_detect(net, im)
-        features = feature_maps.reshape((256,36,64))
-
-
-        #EXPERIMENT CHECK ACTIVATED CONVMAPS FEATURES
-        #activated = np.transpose(np.nonzero(features))
-        #print activated[0].size
-        #print activated[1].size
-        #print activated.shape
-
+        object_scores, object_boxes, scores, boxes = im_detect(net, im)
         timer.toc()
         print ('\nDetection took {:.3f}s for '
            '{:d} object proposals').format(timer.total_time, boxes.shape[0])
 
-        # Visualize detections for each class
-        CONF_THRESH = 0.9*np.ones((1,len(CLASSES)),dtype=np.float32)
-        #PERSON
-        #CONF_THRESH[0,15] = 0.8#0.9
-        #BOTTLE
-        #CONF_THRESH[0,5] = 0.8#0.42
+        CONF_THRESH = 0.7
 
-        NMS_THRESH = 0.3
+        NMS_THRESH = 0.1
         rslt = []
         #print scores.shape
         #print scores
         for cls_ind, cls in enumerate(CLASSES[1:]):
+
+            #fine tuning class probability
+            conf = CONF_THRESH
+            #print cls
+            if cls in PrevClass:
+                conf -= 0.1
+            
+            if cls == 'cell phone':
+                conf = 0.5
+            if cls == 'book':
+                conf = 0.5
+            if cls == 'car':
+                conf = 0.5
+
+            if cls == 'person':
+                conf = 0.9
+
+            if cls == 'cup' :
+                conf = 0.9
+
+            if cls == 'clock' :
+                conf = 0.9
+
+            if cls == 'truck' :
+                conf = 0.9
+
+            if cls == 'refrigerator' :
+                conf = 0.9
+
+            if cls == 'cat' :
+                conf = 0.9
+
             cls_ind += 1 # because we skipped background
             cls_boxes = boxes[:, 4*cls_ind:4*(cls_ind + 1)]
             cls_scores = scores[:, cls_ind]
@@ -151,23 +195,61 @@ def demo(net, im):
                           cls_scores[:, np.newaxis])).astype(np.float32)
             keep = nms(dets, NMS_THRESH)
             dets = dets[keep, :]
-            boxes_scores = vis_detections(im, cls, dets, thresh=CONF_THRESH[0,cls_ind])
+            boxes_scores = vis_detections(im, cls, dets, thresh=conf)
             if boxes_scores is not None:
                 rslt.append((boxes_scores, cls))
-
-        #Check Non-Background Objects
-        cls_boxes = boxes[:, 0:4]
-        cls_scores = scores[:, 0]
-        dets = np.hstack((cls_boxes,
-                cls_scores[:, np.newaxis])).astype(np.float32)
-        keep = nms(dets, 0.3)
-        dets = dets[keep, :]
-        boxes_scores = det_objects(im, 'new', dets, thresh=0.1)
-        if (boxes_scores != None and not is_learnt_boxes(rslt, boxes_scores,0.2)):
-            print rslt
-            rslt.append((boxes_scores, 'new'))
         
         return rslt,object_boxes
+
+def find_obj(object_boxes, box ,cls):
+    """Find The closest objects box"""
+    if object_boxes == []:
+        object_boxes.append(collections.deque(maxlen=smoothing_window))
+        return 0
+
+    for ind, exist_cls_box in enumerate(object_boxes):
+        exist_cls, exist_box, _  = exist_cls_box[0]
+
+        #print exist_cls
+        if cls != exist_cls:
+            continue
+        exist_box = [x[1] for x in exist_cls_box]
+        avg_box = np.mean(exist_box, axis = 0)
+
+        if (abs(box-avg_box) < 150).all() or iou(box, avg_box) > 0.6:
+            #print 'the same object!!'
+            return ind
+
+
+    # New objects detected
+    ind += 1
+    object_boxes.append(collections.deque(maxlen=smoothing_window))
+    return ind
+
+def crop_refine(frame, box, net):
+    cropped_frame = frame[box[1]:box[3], box[0]:box[2]]
+    #cv2.imshow('cropped', cropped_frame)
+    refined, _ = demo(net,cropped_frame)
+    #print refined
+    if len(refined) == 0:
+        return False
+
+    for box_scores_refined, cls_refined in refined:
+        for box_refined, score_refined in box_scores_refined:
+            x1, y1, x2, y2 = box[0] + box_refined[0], box[1] + box_refined[1], \
+                box[0] + box_refined[2], box[1] + box_refined[3]
+            box_refined = x1, y1, x2, y2
+            if not crop_refine(frame, box_refined, net):
+                draw_bbox_class(frame, box_refined, cls_refined)
+    return True
+
+def draw_bbox_class(frame, box, cls):
+    cv2.rectangle(frame, (int(box[0]), int(box[1])), 
+                         (int(box[2]), int(box[3])), (255,255,255), 2)
+    cv2.putText(frame, cls,
+        ( int ((box[0] + box[2])/2),
+        int ((box[1] + box[3])/2) ),
+        font, 1 , (0,152,0), 2)
 
 def parse_args():
     """Parse input arguments."""
@@ -179,6 +261,7 @@ def parse_args():
                         action='store_true')
     parser.add_argument('--net', dest='demo_net', help='Network to use [zf]',
                         choices=NETS.keys(), default='zf')
+    parser.add_argument('--video', dest='video_mode', help='Video mode', default=False, type=bool)
     args = parser.parse_args()
 
     return args
@@ -189,7 +272,7 @@ if __name__ == '__main__':
     args = parse_args()
 
     prototxt = os.path.join(cfg.ROOT_DIR, 'models', NETS[args.demo_net][0],
-                            'faster_rcnn_alt_opt', 'faster_rcnn_test.pt')
+                            'faster_rcnn_end2end', 'test.prototxt')
     caffemodel = os.path.join(cfg.ROOT_DIR, 'data', 'faster_rcnn_models',
                               NETS[args.demo_net][1])
 
@@ -216,63 +299,79 @@ if __name__ == '__main__':
     # Start here
     vid_path = os.path.join(cfg.ROOT_DIR, 'tools', 'demo.mp4')
     img_path = os.path.join(cfg.ROOT_DIR, 'test.jpg')
-    cap = skvideo.io.VideoCapture(vid_path)
-    #cap = cv2.VideoCapture(0)
-    detected = []
-    test = []
+
+    if args.video_mode:
+        cap = skvideo.io.VideoCapture(vid_path)
+    else:
+        cap = cv2.VideoCapture(-1)
+
     font = cv2.FONT_HERSHEY_SIMPLEX
+
+    '''Faster R-CNN result'''
+    detected = []
+
+    '''Time measurement variables'''
     current = time.time()
     previous = current
-    n = 0;
-    object_boxes = collections.deque(maxlen=10)
 
+    '''Tracker utility'''
+    #keep reference of object trackers
+    Trackers = []
+
+    '''Class Heuristic'''
+    PrevClass = []
     while (True):
         
         ret, frame = cap.read()
-        #modified_frame = frame
-        modified_frame = cv2.cvtColor(frame,cv2.COLOR_BGR2RGB)
-        key = cv2.waitKey(20) & 0xFF
-        current = time.time() 
 
-        if key == ord('q'):
-            break
-        if  (current - previous) > 0.25:
-            previous = current            
-            detected,test = demo(net, frame)
-            object_boxes.append(test[1,:]);
+        if (ret == True):
+            modified_frame = frame
 
-        for x in detected:
-            for y in x[0]:
-                # Draw detected objects and the type
-                if x[1] == 'new':
-                    cv2.rectangle(modified_frame, (y[0][0], y[0][1]), 
-                        (y[0][2], y[0][3]), (0,0,255), 1)
-                else:    
-                    cv2.rectangle(modified_frame, (y[0][0], y[0][1]), 
-                        (y[0][2], y[0][3]), (0,255,0), 2)
-                    cv2.putText(modified_frame, x[1],
-                        ( int ((y[0][0] + y[0][2])/2),
-                        int ((y[0][1] + y[0][3])/2) ),
-                        font, 1 , (199,175,152), 2, cv2.CV_AA)           
-                
+            # VideoCapture from skvideo.io has different RGB encoding
+            if args.video_mode:
+                modified_frame = cv2.cvtColor(frame,cv2.COLOR_BGR2RGB)
+            key = cv2.waitKey(20) & 0xFF
+            current = time.time() 
 
-        n = len(object_boxes)
-        sum = [];
-        #for x in object_boxes:
-        test = [0,0,0,0]
-        #time.sleep(0.02)
-        #print object_boxes
-        #for boxes in object_boxes:
-            #test += boxes/n
-            #print test
-            #for y in boxes[0:2]:
-                #print 'haha'
-                #cv2.rectangle(frame, (y[0], y[1]),
-                    #(y[2], y[3]), (0,0,255), 3)
-        #print test
-        #cv2.rectangle(frame, (int(test[0]), int(test[1])),
-        #            (int(test[2]), int(test[3])), (0,0,255), 3)
-        cv2.imshow('Video', modified_frame)
+            if key == ord('q'):
+                break
+
+            #poll every 500 ms
+            if  (current - previous) > 0.5:
+                previous = current            
+                detected,test = demo(net, modified_frame, PrevClass)
+
+                #reset tracker
+                Trackers = []
+
+                #reset prevClass
+                PrevClass = []
+
+                for box_scores, cls in detected:
+                    for box, score in box_scores:
+
+                        #ignores small objects
+                        if((box[2]-box[0])*(box[3]-box[1]) > 20000):
+                            tuple_box = (box[0],box[1],box[2]-box[0],box[3]-box[1])
+                            tracker = cv2.Tracker_create("MIL")
+                            Trackers.append((cls,tracker))
+                            PrevClass.append(cls)
+                            ok = tracker.init(modified_frame,tuple_box)
+
+                            #if not crop_refine(modified_frame, box, net):
+                            draw_bbox_class(modified_frame,box,cls)
+
+            else:
+                for cls, tracker in Trackers:
+                    ok, tuple_box = tracker.update(modified_frame)
+
+                    box = tuple_box[0],tuple_box[1],\
+                    tuple_box[0]+tuple_box[2],tuple_box[1]+tuple_box[3]
+
+                    draw_bbox_class(modified_frame,box,cls)
+
+            
+            cv2.imshow('Video', modified_frame)
 
     cap.release()
     cv2.imwrite(img_path, frame)
